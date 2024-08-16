@@ -1,0 +1,19 @@
+[package]
+name = "nghc-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cached = "0.53.1"
+duckdb = { version = "1.0.0", features = ["bundled"] }
+flate2 = "1.0.31"
+polars = {version = "0.41.3", features = ["lazy", "describe", "parquet", "bigidx", "sql", "dtype-struct", "object", "dtype-array"] }
+rayon = "1.10.0"
+structopt = "0.3.26"
+sysinfo = "0.31.2"
+highs = "1.6.1"
+hashbrown = "0.14.5"
+num_cpus = "1.16.0"
+arrow2 = {version = "0.18.0", features = ["io_parquet"]}
+parquet2 = "0.17.2"
+ndarray = "0.16.0"
