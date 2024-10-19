@@ -2,6 +2,7 @@ use super::load::{DuckDBLoader, Load, Loader, ParquetLoader};
 use super::math::{l1_dist, linf_dist, rmse, z_normalize};
 use super::solution::{Coefficient, Solution};
 use super::util::get_children;
+use cfg_if::cfg_if;
 use hashbrown::HashMap;
 use highs::{RowProblem, Sense};
 use ndarray::{arr1, arr2};
@@ -40,7 +41,15 @@ pub fn optimize(
     output_all: bool,
     core_count: Option<usize>,
 ) {
-    let mut compressed_frequencies: Vec<String> = Vec::new();
+    cfg_if! {
+        if #[cfg(any(feature = "non-selective", feature = "direct-children"))] {
+            let mut compressed_frequencies_map: HashMap<String, [f64; 201]> = HashMap::new();
+            let compressed_frequencies: Vec<String> = Vec::new();
+        } else {
+            let mut compressed_frequencies: Vec<String> = Vec::new();
+        }
+    }
+
     let loader = Loader::new(match input.extension().and_then(OsStr::to_str) {
         Some("db") => Box::new(DuckDBLoader { input }),
         _ => Box::new(ParquetLoader { input }),
@@ -91,36 +100,61 @@ pub fn optimize(
                         i + j * rel_chunk_size as usize,
                         n as u8,
                     );
-                    let mut frequencies = loader.get_frequencies(&chunk);
-                    frequencies.extend(
-                        compressed_frequencies
-                            .clone()
-                            .into_iter()
-                            .map(|x| (x, [0.; 201])),
-                    );
+
+                    cfg_if! {
+                        if #[cfg(any(feature = "non-selective", feature = "direct-children"))] {
+                            let mut frequencies = loader.get_frequencies(&chunk);
+                            frequencies.extend(compressed_frequencies_map.clone());
+                        } else if #[cfg(feature = "highly-selective")] {
+                            let frequencies = loader.get_frequencies(&chunk);
+                        } else {
+                            let mut frequencies = loader.get_frequencies(&chunk);
+                            frequencies.extend(compressed_frequencies.clone().iter()
+                                .map(|x| (x.to_string(), [0.; 201]))
+                                .collect::<HashMap<_, _>>());
+                        }
+                    }
 
                     return chunk
                         .into_par_iter()
-                        .map(|(ngram, _)| minimize_abs_error(&ngram, &frequencies))
+                        .map(|(ngram, _)| {
+                            minimize_abs_error(&ngram, &frequencies, &compressed_frequencies)
+                        })
                         .collect::<Vec<_>>();
                 })
                 .flatten()
                 .collect::<Vec<_>>();
 
-            compressed_frequencies.extend(
-                solutions
-                    .clone()
-                    .into_par_iter()
-                    .map(|sol| match sol.error < error_bound {
-                        true => Some(sol.ngram),
-                        false => None,
-                    })
-                    .filter_map(|x| x)
-                    .collect::<Vec<_>>(),
-            );
+            cfg_if! {
+                if #[cfg(any(feature = "non-selective", feature = "direct-children"))] {
+                    compressed_frequencies_map.extend(
+                        solutions
+                            .clone()
+                            .into_par_iter()
+                            .map(|sol| match sol.error <= error_bound {
+                                true => Some((sol.ngram.clone(), sol.calculated)),
+                                false => None,
+                            })
+                            .filter_map(|x| x)
+                            .collect::<HashMap<_, _>>(),
+                    );
+                } else {
+                    compressed_frequencies.extend(
+                        solutions
+                            .clone()
+                            .into_par_iter()
+                            .map(|sol| match sol.error <= error_bound {
+                                true => Some(sol.ngram),
+                                false => None,
+                            })
+                            .filter_map(|x| x)
+                            .collect::<Vec<_>>(),
+                    );
+                }
+            }
 
             let compressed = solutions.clone().into_par_iter()
-                .filter(|sol| output_all || sol.error < error_bound)
+                .filter(|sol| output_all || sol.error <= error_bound)
                 .map(|sol|polars::frame::row::Row::new(vec![
                     AnyValue::StringOwned(sol.ngram.clone().into()),
                     AnyValue::List(
@@ -143,7 +177,7 @@ pub fn optimize(
 
             let uncompressed = solutions
                 .into_par_iter()
-                .filter(|sol| sol.error >= error_bound)
+                .filter(|sol| sol.error > error_bound)
                 .map(|sol| {
                     polars::frame::row::Row::new(vec![
                         AnyValue::StringOwned(sol.ngram.clone().into()),
@@ -158,10 +192,9 @@ pub fn optimize(
                 outdir_uncompressed.join(format!("{}.parquet", i)),
             );
 
-            println!("Finished chunk {} of n={}", i as u64 / chunk_size, n);
             println!(
-                "already_compressed size: {}B",
-                size_of_val(&*already_compressed)
+                "compressed_frequencies size: {}B",
+                size_of_val(&*compressed_frequencies)
             );
         }
     }
@@ -176,8 +209,23 @@ fn write(rows: &Vec<polars::frame::row::Row>, schema: &Schema, path: PathBuf) {
         .expect("writing parquet file");
 }
 
-fn minimize_abs_error(ngram: &str, frequencies: &HashMap<String, [f64; 201]>) -> Solution {
-    let children = get_children(ngram, false);
+fn minimize_abs_error(
+    ngram: &str,
+    frequencies: &HashMap<String, [f64; 201]>,
+    compressed_frequencies: &Vec<String>,
+) -> Solution {
+    let children: Vec<String>;
+
+    cfg_if! {
+        if #[cfg(feature = "highly-selective")] {
+            let _children = get_children(ngram, false, &vec![]);
+            let filtered_compressed = compressed_frequencies.iter().filter(|x| _children.contains(x)).map(|x| x.to_string()).collect();
+            children = get_children(ngram, false, &filtered_compressed);
+        } else {
+            children = get_children(ngram, false, &vec![]);
+        }
+    }
+
     let y: &[f64; 201] = frequencies.get(ngram).unwrap();
 
     if children.len() < 2 {
@@ -276,5 +324,6 @@ fn minimize_abs_error(ngram: &str, frequencies: &HashMap<String, [f64; 201]>) ->
         summed_error: l1_dist(&y_norm, &y_pred_norm),
         rmse: rmse(&y_norm, &y_pred_norm),
         original: y.to_vec().try_into().unwrap(),
+        calculated: y_pred.to_vec().try_into().unwrap(),
     };
 }

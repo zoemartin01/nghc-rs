@@ -96,7 +96,7 @@ impl Load for DuckDBLoader {
     fn get_frequencies(&self, ngrams: &HashMap<String, [f64; 201]>) -> HashMap<String, [f64; 201]> {
         let wanted = ngrams
             .iter()
-            .map(|(ngram, _)| get_children(ngram, false))
+            .map(|(ngram, _)| get_children(ngram, false, &vec![]))
             .flatten()
             .collect::<HashSet<String>>();
 
@@ -234,7 +234,7 @@ impl Load for ParquetLoader {
 
         let wanted = ngrams
             .iter()
-            .map(|(ngram, _)| get_children(ngram, false))
+            .map(|(ngram, _)| get_children(ngram, false, &vec![]))
             .flatten()
             .collect::<HashSet<String>>();
 

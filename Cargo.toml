@@ -17,3 +17,9 @@ num_cpus = "1.16.0"
 arrow2 = {version = "0.18.0", features = ["io_parquet"]}
 parquet2 = "0.17.2"
 ndarray = "0.16.0"
+cfg-if = "1.0.0"
+
+[features]
+highly-selective = []
+direct-children = []
+non-selective = []
