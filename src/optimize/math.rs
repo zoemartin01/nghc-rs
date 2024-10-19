@@ -15,3 +15,8 @@ pub(crate) fn linf_dist(x: &Array1<f64>, y: &Array1<f64>) -> f64 {
 pub(crate) fn l1_dist(x: &Array1<f64>, y: &Array1<f64>) -> f64 {
     return (x - y).mapv(f64::abs).sum();
 }
+
+pub(crate) fn rmse(x: &Array1<f64>, y: &Array1<f64>) -> f64 {
+    let v = (x - y).mapv(|x| x * x);
+    return (v.sum() / v.len() as f64).sqrt();
+}

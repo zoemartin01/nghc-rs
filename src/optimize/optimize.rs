@@ -1,5 +1,5 @@
 use super::load::{DuckDBLoader, Load, Loader, ParquetLoader};
-use super::math::{l1_dist, linf_dist, z_normalize};
+use super::math::{l1_dist, linf_dist, rmse, z_normalize};
 use super::solution::{Coefficient, Solution};
 use super::util::get_children;
 use hashbrown::HashMap;
@@ -8,6 +8,7 @@ use ndarray::{arr1, arr2};
 use polars::prelude::*;
 use rayon::prelude::*;
 use std::ffi::OsStr;
+use std::mem::size_of_val;
 use std::{fs, path::PathBuf};
 use structopt::StructOpt;
 
@@ -56,8 +57,9 @@ pub fn optimize(
                 ]))),
             ),
             Field::new("error", DataType::Float64),
+            Field::new("rmse", DataType::Float64),
             Field::new("summed_error", DataType::Float64),
-        ][..(if verbose_output { 4 } else { 2 })]
+        ][..(if verbose_output { 5 } else { 2 })]
             .to_vec(),
     );
 
@@ -128,8 +130,9 @@ pub fn optimize(
                             ].unwrap().into_struct("coefficients").into_series(),
                         ),
                     AnyValue::Float64(sol.error),
+                    AnyValue::Float64(sol.rmse),
                     AnyValue::Float64(sol.summed_error),
-                ][..(if verbose_output { 4 } else { 2 })].to_vec()))
+                ][..(if verbose_output { 5 } else { 2 })].to_vec()))
                 .collect::<Vec<_>>();
 
             write(
@@ -153,6 +156,12 @@ pub fn optimize(
                 &uncompressed,
                 &uncompressed_schema,
                 outdir_uncompressed.join(format!("{}.parquet", i)),
+            );
+
+            println!("Finished chunk {} of n={}", i as u64 / chunk_size, n);
+            println!(
+                "already_compressed size: {}B",
+                size_of_val(&*already_compressed)
             );
         }
     }
@@ -265,6 +274,7 @@ fn minimize_abs_error(ngram: &str, frequencies: &HashMap<String, [f64; 201]>) ->
         coefficients: coefs,
         error: linf_dist(&y_norm, &y_pred_norm),
         summed_error: l1_dist(&y_norm, &y_pred_norm),
+        rmse: rmse(&y_norm, &y_pred_norm),
         original: y.to_vec().try_into().unwrap(),
     };
 }

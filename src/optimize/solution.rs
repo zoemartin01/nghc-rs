@@ -6,6 +6,7 @@ pub(crate) struct Solution {
     pub coefficients: Vec<Coefficient>,
     pub original: [f64; 201],
     pub error: f64,
+    pub rmse: f64,
     pub summed_error: f64,
 }
 
@@ -16,6 +17,7 @@ impl Solution {
             coefficients: Vec::new(),
             original: original.clone(),
             error: f64::INFINITY,
+            rmse: f64::INFINITY,
             summed_error: f64::INFINITY,
         };
     }
@@ -28,6 +30,7 @@ impl Clone for Solution {
             coefficients: self.coefficients.clone(),
             original: self.original.clone(),
             error: self.error,
+            rmse: self.rmse,
             summed_error: self.summed_error,
         };
     }
