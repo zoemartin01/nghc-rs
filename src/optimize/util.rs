@@ -1,6 +1,7 @@
 use cfg_if::cfg_if;
+use hashbrown::HashSet;
 
-pub fn get_children(ngram: &str, _child: bool, _compressed: &Vec<String>) -> Vec<String> {
+pub fn get_children(ngram: &str, _child: bool, _compressed: &HashSet<String>) -> Vec<String> {
     if ngram.split_ascii_whitespace().count() == 1 {
         return vec![ngram.to_string()];
     }
@@ -16,7 +17,7 @@ pub fn get_children(ngram: &str, _child: bool, _compressed: &Vec<String>) -> Vec
 
     cfg_if! {
         if #[cfg(feature = "highly-selective")] {
-            fn expand(ngram: &str, compressed: &Vec<String>, expanded: &mut Vec<String>) {
+            fn expand(ngram: &str, compressed: &HashSet<String>, expanded: &mut Vec<String>) {
                 if ngram.split_ascii_whitespace().count() == 1 {
                     expanded.push(ngram.to_string());
                     return;

@@ -3,13 +3,12 @@ use super::math::{l1_dist, linf_dist, rmse, z_normalize};
 use super::solution::{Coefficient, Solution};
 use super::util::get_children;
 use cfg_if::cfg_if;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use highs::{RowProblem, Sense};
 use ndarray::{arr1, arr2};
 use polars::prelude::*;
 use rayon::prelude::*;
 use std::ffi::OsStr;
-use std::mem::size_of_val;
 use std::{fs, path::PathBuf};
 use structopt::StructOpt;
 
@@ -44,9 +43,9 @@ pub fn optimize(
     cfg_if! {
         if #[cfg(any(feature = "non-selective", feature = "direct-children"))] {
             let mut compressed_frequencies_map: HashMap<String, [f64; 201]> = HashMap::new();
-            let compressed_frequencies: Vec<String> = Vec::new();
+            let compressed_frequencies: HashSet<String> = HashSet::new();
         } else {
-            let mut compressed_frequencies: Vec<String> = Vec::new();
+            let mut compressed_frequencies: HashSet<String> = HashSet::new();
         }
     }
 
@@ -191,11 +190,6 @@ pub fn optimize(
                 &uncompressed_schema,
                 outdir_uncompressed.join(format!("{}.parquet", i)),
             );
-
-            println!(
-                "compressed_frequencies size: {}B",
-                size_of_val(&*compressed_frequencies)
-            );
         }
     }
 }
@@ -212,17 +206,21 @@ fn write(rows: &Vec<polars::frame::row::Row>, schema: &Schema, path: PathBuf) {
 fn minimize_abs_error(
     ngram: &str,
     frequencies: &HashMap<String, [f64; 201]>,
-    compressed_frequencies: &Vec<String>,
+    compressed_frequencies: &HashSet<String>,
 ) -> Solution {
     let children: Vec<String>;
 
     cfg_if! {
         if #[cfg(feature = "highly-selective")] {
-            let _children = get_children(ngram, false, &vec![]);
-            let filtered_compressed = compressed_frequencies.iter().filter(|x| _children.contains(x)).map(|x| x.to_string()).collect();
+            let _children: HashSet<_> =
+            HashSet::from_iter(get_children(ngram, false, &HashSet::new()).clone());
+            let filtered_compressed = compressed_frequencies
+                .intersection(&_children)
+                .map(|x| x.to_string())
+                .collect::<HashSet<_>>();
             children = get_children(ngram, false, &filtered_compressed);
         } else {
-            children = get_children(ngram, false, &vec![]);
+            children = get_children(ngram, false, &HashSet::new());
         }
     }
 
